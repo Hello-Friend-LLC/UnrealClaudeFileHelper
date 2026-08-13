@@ -673,7 +673,7 @@ async function fetchWatcherStatus(port) {
     const progress = w.progress || {};
     return {
       hasActiveWatcher: true,
-      phase: progress.phase || 'unknown',
+      phase: progress.phase || 'watching',
       projectProgress: progress.projectProgress || [],
     };
   } catch {
