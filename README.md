@@ -93,6 +93,29 @@ Each workspace runs as its own Docker container with a dedicated port, SQLite da
 | `unreal_refresh_index` | Rebuild the index on demand |
 | `unreal_batch` | Execute multiple queries in a single call |
 
+### Index completeness (`index` block)
+
+Every query response (`/find-type`, `/find-member`, `/find-file`, `/find-asset`,
+`/find-children`, `/explain-type`, `/browse-module`, `/list-modules`, `/grep`,
+and `/batch` — including each `/batch` sub-result) carries a top-level `index`
+block so a caller can tell an empty result that is trustworthy from one that
+merely reflects an index gap:
+
+```json
+"index": { "complete": true, "reasons": [], "lastIndexTime": "2026-08-20T10:00:00.000Z" }
+```
+
+- `complete: true` — no results means **no such thing exists** in the indexed
+  scope. This is the only state where an empty result is ground truth.
+- `complete: false` — the index may not have been able to answer. `reasons` is
+  non-empty and holds one or more of: `health-not-ok`, `zoekt-not-running`,
+  `indexing-in-progress`, `no-active-watcher`, `never-indexed`.
+- `lastIndexTime` — ISO-8601 timestamp of the last successful index run, or
+  `null` when no run has been recorded.
+
+Permanent scope limits (e.g. Blueprint bodies are binary and not text-indexable)
+are *not* incompleteness — they never set `complete: false`.
+
 ## Configuration
 
 Configuration is managed through the setup GUI (`npm run setup` or `http://localhost:3846`):

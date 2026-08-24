@@ -53,6 +53,20 @@ class GrepCache {
 
 const grepCache = new GrepCache(200, 30000);
 
+// A watcher is "active" until 3 heartbeats (45s) have been missed.
+const WATCHER_STALE_MS = 45000;
+
+// Index-completeness reason codes (DEC-2671). Stable strings — callers match
+// on them to tell a verified zero ("no results, index was healthy") apart from
+// an index gap ("no results, but the index may not have been able to answer").
+const INDEX_REASON = {
+  HEALTH_NOT_OK: 'health-not-ok',
+  ZOEKT_NOT_RUNNING: 'zoekt-not-running',
+  INDEXING_IN_PROGRESS: 'indexing-in-progress',
+  NO_ACTIVE_WATCHER: 'no-active-watcher',
+  NEVER_INDEXED: 'never-indexed'
+};
+
 // Watcher heartbeat state — in-memory only, not persisted
 const watcherState = {
   watchers: new Map(),      // watcherId → { ...payload, receivedAt }
@@ -315,6 +329,114 @@ export function createApi(database, indexer, queryPool = null, {
     return database[method](...args);
   }
 
+  // --- Index completeness signal (DEC-2671) ---------------------------------
+  // Every query route carries a top-level `index` block so a caller can tell a
+  // verified zero from an index gap. This only SURFACES state the service
+  // already tracks — no new tracking machinery, no extra bookkeeping writes.
+  //
+  // NOT a place for permanent scope limits (e.g. Blueprint members are
+  // unindexable by design): a route that structurally cannot answer a class of
+  // query is a different concept from "the index might be incomplete/stale".
+
+  /** Health state as reported by /health. Single source for both callers, so a
+   *  future degraded/error state automatically marks the index incomplete. */
+  function serviceHealthStatus() {
+    return 'ok';
+  }
+
+  /** True when at least one watcher has heartbeat within WATCHER_STALE_MS. */
+  function hasActiveWatcher() {
+    const staleCutoff = Date.now() - WATCHER_STALE_MS;
+    for (const w of watcherState.watchers.values()) {
+      const receivedMs = new Date(w.receivedAt).getTime();
+      if (receivedMs > staleCutoff) return true;
+    }
+    return false;
+  }
+
+  /** ISO-8601 timestamp of the last successful index completion, or null.
+   *  Preference order (all pre-existing state):
+   *    1. `lastBuild` metadata written by a full build
+   *    2. newest index_status row in state 'ready' (background indexer)
+   *    3. last successful watcher ingest (watcher-fed deployments) */
+  function lastSuccessfulIndexTime() {
+    try {
+      const lastBuild = typeof database.getMetadata === 'function'
+        ? database.getMetadata('lastBuild') : null;
+      if (lastBuild && lastBuild.timestamp) return lastBuild.timestamp;
+    } catch {}
+    try {
+      const rows = typeof database.getAllIndexStatus === 'function'
+        ? database.getAllIndexStatus() : [];
+      let newest = null;
+      for (const row of rows || []) {
+        if (!row || row.status !== 'ready' || !row.last_updated) continue;
+        if (!newest || row.last_updated > newest) newest = row.last_updated;
+      }
+      if (newest) return newest;
+    } catch {}
+    return watcherState.lastIngestAt || null;
+  }
+
+  /** True when the index holds no indexed files at all. */
+  function indexIsEmpty() {
+    try {
+      if (typeof database.isEmpty === 'function') return database.isEmpty();
+    } catch {}
+    return false;
+  }
+
+  /** True when a background index run is currently in flight. */
+  function indexingInProgress() {
+    if (indexer && indexer.isIndexing) return true;
+    try {
+      const rows = typeof database.getAllIndexStatus === 'function'
+        ? database.getAllIndexStatus() : [];
+      for (const row of rows || []) {
+        if (row && row.status === 'indexing') return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  /** Build the `index` block: { complete, reasons, lastIndexTime }. */
+  function getIndexState() {
+    const reasons = new Set();
+
+    if (serviceHealthStatus() !== 'ok') reasons.add(INDEX_REASON.HEALTH_NOT_OK);
+
+    // Zoekt: only observable when a manager is wired in. No manager configured
+    // is not evidence of incompleteness, so it contributes no reason.
+    if (zoektManager) {
+      let zoekt = null;
+      try { zoekt = zoektManager.getStatus(); } catch {}
+      if (!zoekt || zoekt.running === false) reasons.add(INDEX_REASON.ZOEKT_NOT_RUNNING);
+      else if (zoekt.indexing === true) reasons.add(INDEX_REASON.INDEXING_IN_PROGRESS);
+    }
+
+    if (indexingInProgress()) reasons.add(INDEX_REASON.INDEXING_IN_PROGRESS);
+
+    if (!hasActiveWatcher()) reasons.add(INDEX_REASON.NO_ACTIVE_WATCHER);
+
+    const lastIndexTime = lastSuccessfulIndexTime();
+    // "Never indexed" = no successful run recorded AND nothing in the index.
+    // A populated index with no recorded run (e.g. service restarted after a
+    // watcher-fed build) is not a gap — it just has no known build timestamp.
+    if (!lastIndexTime && indexIsEmpty()) reasons.add(INDEX_REASON.NEVER_INDEXED);
+
+    return {
+      complete: reasons.size === 0,
+      reasons: [...reasons],
+      lastIndexTime: lastIndexTime || null
+    };
+  }
+
+  /** Return a copy of `response` with the `index` block attached.
+   *  Non-mutating on purpose — /grep hands us cached objects. */
+  function withIndexState(response) {
+    return { ...response, index: getIndexState() };
+  }
+
   // Request duration logging (skip /health to reduce noise)
   app.use((req, res, next) => {
     if (req.path === '/health') return next();
@@ -359,7 +481,7 @@ export function createApi(database, indexer, queryPool = null, {
   app.get('/health', (req, res) => {
     const mem = process.memoryUsage();
     const response = {
-      status: 'ok',
+      status: serviceHealthStatus(),
       version: SERVICE_VERSION,
       gitHash: SERVICE_GIT_HASH,
       timestamp: new Date().toISOString(),
@@ -425,7 +547,7 @@ export function createApi(database, indexer, queryPool = null, {
 
   app.get('/watcher-status', (req, res) => {
     const watchers = [];
-    const staleCutoff = Date.now() - 45000; // 3 missed heartbeats = stale
+    const staleCutoff = Date.now() - WATCHER_STALE_MS; // 3 missed heartbeats = stale
     const pruneCutoff = Date.now() - 60000;
 
     for (const [id, w] of watcherState.watchers) {
@@ -1088,7 +1210,7 @@ export function createApi(database, indexer, queryPool = null, {
         response.hints = buildEmptyResultHints(database, { project, fuzzy: opts.fuzzy, supportsFuzzy: true }, memoryIndex);
       }
       if (projectWarning) (response.hints ??= []).unshift(projectWarning);
-      res.json(response);
+      res.json(withIndexState(response));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1116,7 +1238,7 @@ export function createApi(database, indexer, queryPool = null, {
         result.hints = buildEmptyResultHints(database, { project }, memoryIndex);
       }
       if (projectWarning) (result.hints ??= []).unshift(projectWarning);
-      res.json(result);
+      res.json(withIndexState(result));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1144,7 +1266,7 @@ export function createApi(database, indexer, queryPool = null, {
         result.hints = buildEmptyResultHints(database, { project }, memoryIndex);
       }
       if (projectWarning) (result.hints ??= []).unshift(projectWarning);
-      res.json(result);
+      res.json(withIndexState(result));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1174,7 +1296,7 @@ export function createApi(database, indexer, queryPool = null, {
         response.hints = buildEmptyResultHints(database, { project }, memoryIndex);
       }
       if (projectWarning) (response.hints ??= []).unshift(projectWarning);
-      res.json(response);
+      res.json(withIndexState(response));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1253,7 +1375,7 @@ export function createApi(database, indexer, queryPool = null, {
         response.hints = buildEmptyResultHints(database, { project, fuzzy: opts.fuzzy, supportsFuzzy: true }, memoryIndex);
       }
       if (projectWarning) (response.hints ??= []).unshift(projectWarning);
-      res.json(response);
+      res.json(withIndexState(response));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1270,7 +1392,7 @@ export function createApi(database, indexer, queryPool = null, {
       };
 
       const results = await poolQuery('listModules', [parent || '', opts]);
-      res.json({ results });
+      res.json(withIndexState({ results }));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1301,7 +1423,7 @@ export function createApi(database, indexer, queryPool = null, {
         const hints = buildEmptyResultHints(database, { project, supportsFuzzy: true }, memoryIndex);
         if (projectWarning) hints.unshift(projectWarning);
         const response = { type: null, hints };
-        return res.json(response);
+        return res.json(withIndexState(response));
       }
 
       const typeResult = typeResults[0];
@@ -1358,7 +1480,7 @@ export function createApi(database, indexer, queryPool = null, {
 
       response.queryTimeMs = Math.round(performance.now() - startMs);
       if (projectWarning) (response.hints ??= []).unshift(projectWarning);
-      res.json(response);
+      res.json(withIndexState(response));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1388,7 +1510,7 @@ export function createApi(database, indexer, queryPool = null, {
         response.hints = buildEmptyResultHints(database, { project, fuzzy: opts.fuzzy, supportsFuzzy: true }, memoryIndex);
       }
       if (projectWarning) (response.hints ??= []).unshift(projectWarning);
-      res.json(response);
+      res.json(withIndexState(response));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1582,7 +1704,7 @@ export function createApi(database, indexer, queryPool = null, {
       for (const q of queries) {
         const { method, args } = q;
         if (!method || !BATCH_ALLOWED_METHODS.has(method)) {
-          results.push({ error: `Unknown or disallowed method: ${method}` });
+          results.push(withIndexState({ error: `Unknown or disallowed method: ${method}` }));
           continue;
         }
         try {
@@ -1614,13 +1736,15 @@ export function createApi(database, indexer, queryPool = null, {
             });
           }
 
-          results.push({ result });
+          // Each sub-result carries its own index block (DEC-2671) — a batch
+          // caller reads sub-results independently of the envelope.
+          results.push(withIndexState({ result }));
         } catch (err) {
-          results.push({ error: err.message });
+          results.push(withIndexState({ error: err.message }));
         }
       }
 
-      res.json({ results, totalTimeMs: Math.round(performance.now() - startMs) });
+      res.json(withIndexState({ results, totalTimeMs: Math.round(performance.now() - startMs) }));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1651,10 +1775,12 @@ export function createApi(database, indexer, queryPool = null, {
     const cacheKey = `${pattern}|${project || ''}|${language || ''}|${cs}|${mr}|${cl}|${grouped}|${ia}|${sym}`;
     const cached = grepCache.get(cacheKey);
     if (cached) {
+      // index state is computed at serve time, never cached — a cached hit must
+      // still report the index's CURRENT completeness (DEC-2671).
       if (projectWarning) {
-        return res.json({ ...cached, hints: [projectWarning, ...(cached.hints || [])] });
+        return res.json(withIndexState({ ...cached, hints: [projectWarning, ...(cached.hints || [])] }));
       }
-      return res.json(cached);
+      return res.json(withIndexState(cached));
     }
 
     try {
@@ -1780,9 +1906,9 @@ export function createApi(database, indexer, queryPool = null, {
         if (grepHints.length > 0) groupedResponse.hints = grepHints;
         grepCache.set(cacheKey, groupedResponse);
         if (projectWarning) {
-          return res.json({ ...groupedResponse, hints: [projectWarning, ...(groupedResponse.hints || [])] });
+          return res.json(withIndexState({ ...groupedResponse, hints: [projectWarning, ...(groupedResponse.hints || [])] }));
         }
-        return res.json(groupedResponse);
+        return res.json(withIndexState(groupedResponse));
       }
 
       const response = {
@@ -1798,9 +1924,9 @@ export function createApi(database, indexer, queryPool = null, {
       if (grepHints.length > 0) response.hints = grepHints;
       grepCache.set(cacheKey, response);
       if (projectWarning) {
-        return res.json({ ...response, hints: [projectWarning, ...(response.hints || [])] });
+        return res.json(withIndexState({ ...response, hints: [projectWarning, ...(response.hints || [])] }));
       }
-      return res.json(response);
+      return res.json(withIndexState(response));
     } catch (err) {
       const durationMs = Math.round(performance.now() - grepStartMs);
       console.warn(`[Grep] "${pattern.slice(0, 60)}" -> error (${durationMs}ms): ${err.message}`);
