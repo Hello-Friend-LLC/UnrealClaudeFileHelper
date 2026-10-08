@@ -62,7 +62,7 @@ npm ships with Node.js. If npm is missing but Node.js was just installed, the us
 if [ -d "$USERPROFILE/.claude/repos/embark-claude-index/.git" ]; then
   cd "$USERPROFILE/.claude/repos/embark-claude-index" && git pull --ff-only && echo "Repo updated"
 else
-  git clone https://github.com/EmbarkStudios/UnrealClaudeFileHelper.git "$USERPROFILE/.claude/repos/embark-claude-index" && echo "Repo cloned"
+  git clone https://github.com/Hello-Friend-LLC/UnrealClaudeFileHelper.git "$USERPROFILE/.claude/repos/embark-claude-index" && echo "Repo cloned"
 fi
 ```
 

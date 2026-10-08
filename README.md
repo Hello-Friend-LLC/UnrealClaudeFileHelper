@@ -16,7 +16,7 @@ Fast code search for Unreal Engine projects in Claude Code.
 
 In Claude Code, run:
 ```
-/plugin marketplace add EmbarkStudios/UnrealClaudeFileHelper
+/plugin marketplace add Hello-Friend-LLC/UnrealClaudeFileHelper
 /plugin install embark-claude-index@embark-claude-index
 ```
 
