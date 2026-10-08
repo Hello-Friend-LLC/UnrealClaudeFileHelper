@@ -12,6 +12,14 @@ Fast code search for Unreal Engine projects in Claude Code.
 
 ## Quick Install
 
+> **HF fork:** on HF machines, `/hf-onboard` (phase 5c) does all of this:
+> clones this fork, installs dependencies, sets `UNREAL_INDEX_DIR`,
+> registers the marketplace and installs the plugin, and (with
+> `--setup-ue-index-workspace`) creates the workspace, containers and
+> watcher. The upstream `/embark-claude-index:setup` skill is removed in
+> this fork because it cloned a second copy into
+> `~/.claude/repos/embark-claude-index`.
+
 ### 1. Add the marketplace and install
 
 In Claude Code, run:
@@ -31,19 +39,9 @@ Restart to load the plugin and MCP tools.
 
 ### 3. Run setup
 
-After restart, run the setup skill:
-```
-/embark-claude-index:setup
-```
-
-This will guide you through:
-- Installing dependencies
-- Detecting your `.uproject` file and project structure
-- Configuring workspaces and project paths
-- Building and starting Docker containers
-- Starting the file watcher
-
-Alternatively, run `npm run setup` to open the web-based setup GUI at `http://localhost:3846`.
+Run `npm run setup` in the clone to open the web-based setup GUI at
+`http://localhost:3846`. It handles dependencies, workspace and project-path
+configuration, Docker containers, and the file watcher.
 
 ## Prerequisites
 
