@@ -18,7 +18,7 @@ _CONFIG_PATH = _ROOT / "config.json"
 _DEFAULT_PORT = 3847
 _SCREEN_SESSION = "unreal-index"
 _WSL_REPO_DIR = "~/repos/unreal-index"
-_REPO_URL = "https://github.com/EmbarkStudios/UnrealClaudeFileHelper.git"
+_REPO_URL = "https://github.com/Hello-Friend-LLC/UnrealClaudeFileHelper.git"
 
 
 def _get_wsl_distro() -> str:
