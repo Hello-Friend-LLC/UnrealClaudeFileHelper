@@ -72,8 +72,21 @@ function validateWorkspaceConfigs(wsConfig) {
 
 // ── Docker helpers ──────────────────────────────────────────
 
+// On Windows, prefer Docker Desktop's Windows CLI: `wsl --` runs in the user's DEFAULT
+// distro, coupling the index to that distro's state. WSL is only the fallback.
+function _detectWslDocker() {
+  if (process.platform !== 'win32') return false;
+  try {
+    execFileSync('docker', ['compose', 'version'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
+    return false;
+  } catch {
+    return true;
+  }
+}
+const WSL_DOCKER = _detectWslDocker();
+
 function checkDocker() {
-  if (process.platform === 'win32') {
+  if (WSL_DOCKER) {
     try {
       execFileSync('wsl', ['--', 'bash', '-c', 'docker compose version 2>/dev/null'],
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
@@ -91,7 +104,7 @@ function checkDocker() {
 }
 
 function runDockerCompose(composeArgs) {
-  if (process.platform === 'win32') {
+  if (WSL_DOCKER) {
     return execFileSync('wsl', [
       '--', 'docker', 'compose', ...composeArgs,
     ], { encoding: 'utf-8', timeout: 120000, cwd: ROOT });

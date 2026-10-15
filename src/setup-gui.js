@@ -251,12 +251,16 @@ function checkAllPrerequisites() {
     }
   }
 
-  // Docker Engine (only if WSL ok)
-  if (result.wsl.ok) {
+  // Docker checks run through the same CLI the service calls use (see WSL_DOCKER)
+  const dockerOpts = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 };
+  const runDocker = (args) => (WSL_DOCKER
+    ? execFileSync('wsl', ['--', 'docker', ...args], dockerOpts)
+    : execFileSync('docker', args, dockerOpts)).trim();
+
+  // Docker Engine (via WSL only if WSL ok)
+  if (result.wsl.ok || !WSL_DOCKER) {
     try {
-      const ver = execFileSync('wsl', [
-        '--', 'bash', '-c', 'docker --version 2>/dev/null',
-      ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }).trim();
+      const ver = runDocker(['--version']);
       if (ver.includes('Docker')) {
         result.dockerEngine.ok = true;
         result.dockerEngine.version = ver;
@@ -267,9 +271,7 @@ function checkAllPrerequisites() {
   // Docker Compose (only if Docker Engine ok)
   if (result.dockerEngine.ok) {
     try {
-      const ver = execFileSync('wsl', [
-        '--', 'bash', '-c', 'docker compose version 2>/dev/null',
-      ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }).trim();
+      const ver = runDocker(['compose', 'version']);
       if (ver.includes('Docker Compose') || ver.includes('docker-compose')) {
         result.dockerCompose.ok = true;
         result.dockerCompose.version = ver;
@@ -280,10 +282,8 @@ function checkAllPrerequisites() {
   // Docker Daemon (only if Docker Engine ok)
   if (result.dockerEngine.ok) {
     try {
-      const out = execFileSync('wsl', [
-        '--', 'bash', '-c', 'docker info >/dev/null 2>&1 && echo OK',
-      ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }).trim();
-      result.dockerDaemon.ok = out.includes('OK');
+      runDocker(['info']);
+      result.dockerDaemon.ok = true;
     } catch {}
   }
 
@@ -316,7 +316,7 @@ function checkAllPrerequisites() {
     }
   }
 
-  result.allOk = result.node.ok && result.wsl.ok && result.dockerEngine.ok
+  result.allOk = result.node.ok && (result.wsl.ok || !WSL_DOCKER) && result.dockerEngine.ok
     && result.dockerCompose.ok && result.dockerDaemon.ok && result.envVar.ok;
 
   // Backward compat: include legacy fields
@@ -325,6 +325,21 @@ function checkAllPrerequisites() {
 
   return result;
 }
+
+// On Windows, drive Docker Desktop through its Windows CLI whenever it is installed.
+// Routing every call through `wsl --` runs it in the user's DEFAULT distro, coupling
+// the index to that distro's state (its own dockerd, WSL integration, a wedged VM).
+// WSL is only the fallback for machines with Docker Engine installed inside WSL.
+function _detectWslDocker() {
+  if (process.platform !== 'win32') return false;
+  try {
+    execFileSync('docker', ['compose', 'version'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
+    return false;
+  } catch {
+    return true;
+  }
+}
+const WSL_DOCKER = _detectWslDocker();
 
 // --- Docker status cache ---
 // checkService() shells out to WSL (docker compose ps + docker stats) which takes 2-4s per workspace.
@@ -351,7 +366,7 @@ function _checkServiceSync(workspaceName) {
   const result = { running: false, health: '', memUsage: null, memLimit: null, memPercent: null };
   try {
     let output;
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
       output = execFileSync('wsl', [
         '--', 'bash', '-c', `cd "${wslRoot}" && docker compose ps ${workspaceName} --format json 2>/dev/null`,
@@ -373,12 +388,12 @@ function _checkServiceSync(workspaceName) {
     try {
       const containerName = `unreal-index-${workspaceName}`;
       let statsOutput;
-      if (process.platform === 'win32') {
+      if (WSL_DOCKER) {
         statsOutput = execFileSync('wsl', [
           '--', 'bash', '-c', `docker stats ${containerName} --no-stream --format '{{.MemUsage}}|{{.MemPerc}}' 2>/dev/null`,
         ], { encoding: 'utf-8', timeout: 5000 }).trim();
       } else {
-        statsOutput = execSync(`docker stats ${containerName} --no-stream --format '{{.MemUsage}}|{{.MemPerc}}'`, {
+        statsOutput = execFileSync('docker', ['stats', containerName, '--no-stream', '--format', '{{.MemUsage}}|{{.MemPerc}}'], {
           encoding: 'utf-8', timeout: 5000,
         }).trim();
       }
@@ -411,7 +426,7 @@ async function _checkServiceAsync(workspaceName) {
   const result = { running: false, health: '', memUsage: null, memLimit: null, memPercent: null };
   try {
     let output;
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
       output = await _execFileAsync('wsl', [
         '--', 'bash', '-c', `cd "${wslRoot}" && docker compose ps ${workspaceName} --format json 2>/dev/null`,
@@ -431,7 +446,7 @@ async function _checkServiceAsync(workspaceName) {
     try {
       const containerName = `unreal-index-${workspaceName}`;
       let statsOutput;
-      if (process.platform === 'win32') {
+      if (WSL_DOCKER) {
         statsOutput = await _execFileAsync('wsl', [
           '--', 'bash', '-c', `docker stats ${containerName} --no-stream --format '{{.MemUsage}}|{{.MemPerc}}' 2>/dev/null`,
         ]);
@@ -887,7 +902,7 @@ route('POST', '/api/workspaces/:name/rename', async (req, res, params) => {
 
     // Stop existing container before renaming
     try {
-      if (process.platform === 'win32') {
+      if (WSL_DOCKER) {
         const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
         execFileSync('wsl', [
           '--', 'bash', '-c', `cd "${wslRoot}" && docker compose rm -sf ${name} 2>/dev/null; true`,
@@ -943,7 +958,7 @@ route('DELETE', '/api/workspaces/:name', async (req, res, params) => {
 
     // Stop and remove the Docker container before updating config
     try {
-      if (process.platform === 'win32') {
+      if (WSL_DOCKER) {
         const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
         execFileSync('wsl', [
           '--', 'bash', '-c', `cd "${wslRoot}" && docker compose rm -sf ${name} 2>/dev/null; true`,
@@ -962,7 +977,7 @@ route('DELETE', '/api/workspaces/:name', async (req, res, params) => {
       const stableNames = volNames.map(n => `unreal-index-${n}`);
       try {
         let volList;
-        if (process.platform === 'win32') {
+        if (WSL_DOCKER) {
           volList = execFileSync('wsl', [
             '--', 'bash', '-c', `docker volume ls -q 2>/dev/null`,
           ], { encoding: 'utf-8', timeout: 10000 }).trim();
@@ -974,7 +989,7 @@ route('DELETE', '/api/workspaces/:name', async (req, res, params) => {
         );
         for (const vol of matchingVols) {
           try {
-            if (process.platform === 'win32') {
+            if (WSL_DOCKER) {
               execFileSync('wsl', ['--', 'bash', '-c', `docker volume rm "${vol}" 2>/dev/null; true`],
                 { encoding: 'utf-8', timeout: 10000 });
             } else {
@@ -1212,7 +1227,7 @@ route('GET', '/api/docker/status', (req, res) => {
     res.end(JSON.stringify({ containers }));
   } catch (err) {
     // Try WSL fallback
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       try {
         const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
         const output = execFileSync('wsl', [
@@ -1252,7 +1267,7 @@ route('POST', '/api/docker/build', (req, res) => {
   // Use spawn to bypass cmd.exe shell interpretation on Windows
   // (cmd.exe splits on && inside single quotes, breaking the bash command)
   let child;
-  if (process.platform === 'win32') {
+  if (WSL_DOCKER) {
     child = spawn('wsl', ['--', 'bash', '-c', `cd "${wslRoot}" && docker compose build --build-arg BUILD_GIT_HASH=${gitHash} 2>&1`]);
   } else {
     child = spawn('docker', ['compose', 'build', '--build-arg', `BUILD_GIT_HASH=${gitHash}`], { cwd: ROOT });
@@ -1294,7 +1309,7 @@ route('POST', '/api/docker/start', async (req, res) => {
     const service = workspace ? ` ${workspace}` : '';
 
     let output;
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
       output = execFileSync('wsl', [
         '--', 'bash', '-c', `cd "${wslRoot}" && docker compose up -d${service} 2>&1`,
@@ -1320,7 +1335,7 @@ route('POST', '/api/docker/stop', async (req, res) => {
     const service = workspace ? ` ${workspace}` : '';
 
     let output;
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
       output = execFileSync('wsl', [
         '--', 'bash', '-c', `cd "${wslRoot}" && docker compose stop${service} 2>&1`,
@@ -1447,7 +1462,7 @@ route('GET', '/api/docker/logs/:workspace', (req, res, params) => {
   const workspace = params.workspace;
   try {
     let output;
-    if (process.platform === 'win32') {
+    if (WSL_DOCKER) {
       const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
       output = execFileSync('wsl', [
         '--', 'bash', '-c', `cd "${wslRoot}" && docker compose logs --tail 80 ${workspace} 2>&1`,
