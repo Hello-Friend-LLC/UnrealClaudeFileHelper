@@ -74,14 +74,12 @@ function validateWorkspaceConfigs(wsConfig) {
 
 // On Windows, prefer Docker Desktop's Windows CLI: `wsl --` runs in the user's DEFAULT
 // distro, coupling the index to that distro's state. WSL is only the fallback.
+// Decided by docker.exe on PATH, never by running it: a cold first `docker`
+// call at logon (Docker Desktop still starting) can exceed any timeout.
 function _detectWslDocker() {
   if (process.platform !== 'win32') return false;
-  try {
-    execFileSync('docker', ['compose', 'version'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
-    return false;
-  } catch {
-    return true;
-  }
+  const dirs = (process.env.PATH || '').split(';').map(d => d.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  return !dirs.some(d => existsSync(join(d, 'docker.exe')));
 }
 const WSL_DOCKER = _detectWslDocker();
 

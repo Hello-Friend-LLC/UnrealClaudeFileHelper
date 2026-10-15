@@ -330,14 +330,14 @@ function checkAllPrerequisites() {
 // Routing every call through `wsl --` runs it in the user's DEFAULT distro, coupling
 // the index to that distro's state (its own dockerd, WSL integration, a wedged VM).
 // WSL is only the fallback for machines with Docker Engine installed inside WSL.
+// Decided by whether docker.exe is on PATH, never by running it: the dashboard
+// starts at logon, usually before Docker Desktop, when a cold first `docker`
+// call can blow any timeout, and the answer is fixed for the process lifetime
+// (measured: dashboard stuck on the WSL fallback, every workspace "stopped").
 function _detectWslDocker() {
   if (process.platform !== 'win32') return false;
-  try {
-    execFileSync('docker', ['compose', 'version'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 });
-    return false;
-  } catch {
-    return true;
-  }
+  const dirs = (process.env.PATH || '').split(';').map(d => d.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  return !dirs.some(d => existsSync(join(d, 'docker.exe')));
 }
 const WSL_DOCKER = _detectWslDocker();
 
