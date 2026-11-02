@@ -20,6 +20,7 @@ import {
   generateDockerComposeContent,
 } from './workspace-utils.js';
 import { startWorkspaceWatcher } from './setup-watcher-start.js';
+import { createDockerEngineStatus, emptyServiceStatus } from './docker-engine-status.js';
 
 // Prevent unhandled rejections from silently crashing the server
 process.on('unhandledRejection', (reason) => {
@@ -342,77 +343,24 @@ function _detectWslDocker() {
 const WSL_DOCKER = _detectWslDocker();
 
 // --- Docker status cache ---
-// checkService() shells out to WSL (docker compose ps + docker stats) which takes 2-4s per workspace.
-// Cache the results and refresh in the background so /api/workspaces responds instantly.
+// A background poll keeps per-workspace status cached so /api/workspaces responds instantly.
+// Native Docker is read through the Engine API (docker-engine-status.js), which spawns no
+// processes; the WSL fallback still shells out. While the engine is unreachable the poll
+// backs off from DOCKER_POLL_MS to DOCKER_POLL_MAX_MS.
 const _dockerStatusCache = new Map(); // workspaceName → { result, updatedAt }
-const DOCKER_CACHE_MAX_AGE_MS = 10000; // serve cached for 10s
+const DOCKER_POLL_MS = 10000;
+const DOCKER_POLL_MAX_MS = 30000;
+const _dockerEngine = createDockerEngineStatus();
 
 function checkService(workspaceName) {
   const cached = _dockerStatusCache.get(workspaceName);
-  if (cached && Date.now() - cached.updatedAt < DOCKER_CACHE_MAX_AGE_MS) {
-    return cached.result;
-  }
-  // Return stale cache immediately, refresh in background
-  if (cached) {
-    _refreshAllDockerStatusAsync();
-    return cached.result;
-  }
+  if (cached) return cached.result;
   // No cache yet (still warming up) — return unknown, don't block
   _refreshAllDockerStatusAsync();
-  return { running: false, health: 'loading', memUsage: null, memLimit: null, memPercent: null };
+  return { ...emptyServiceStatus(), health: 'loading' };
 }
 
-function _checkServiceSync(workspaceName) {
-  const result = { running: false, health: '', memUsage: null, memLimit: null, memPercent: null };
-  try {
-    let output;
-    if (WSL_DOCKER) {
-      const wslRoot = fwd(ROOT).replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`);
-      output = execFileSync('wsl', [
-        '--', 'bash', '-c', `cd "${wslRoot}" && docker compose ps ${workspaceName} --format json 2>/dev/null`,
-      ], { encoding: 'utf-8', timeout: 5000 }).trim();
-    } else {
-      output = execSync(`docker compose ps ${workspaceName} --format json`, {
-        cwd: ROOT, encoding: 'utf-8', timeout: 5000,
-      }).trim();
-    }
-    if (!output) return result;
-    const info = JSON.parse(output);
-    result.running = info.State === 'running';
-    result.health = info.Health || '';
-  } catch {
-    return result;
-  }
-
-  if (result.running) {
-    try {
-      const containerName = `unreal-index-${workspaceName}`;
-      let statsOutput;
-      if (WSL_DOCKER) {
-        statsOutput = execFileSync('wsl', [
-          '--', 'bash', '-c', `docker stats ${containerName} --no-stream --format '{{.MemUsage}}|{{.MemPerc}}' 2>/dev/null`,
-        ], { encoding: 'utf-8', timeout: 5000 }).trim();
-      } else {
-        statsOutput = execFileSync('docker', ['stats', containerName, '--no-stream', '--format', '{{.MemUsage}}|{{.MemPerc}}'], {
-          encoding: 'utf-8', timeout: 5000,
-        }).trim();
-      }
-      if (statsOutput) {
-        const [usage, pct] = statsOutput.split('|');
-        result.memUsage = usage?.trim() || null;
-        result.memPercent = pct ? parseFloat(pct) : null;
-        if (usage) {
-          const parts = usage.split('/');
-          result.memLimit = parts[1]?.trim() || null;
-        }
-      }
-    } catch { /* stats unavailable, non-critical */ }
-  }
-
-  return result;
-}
-
-// Async Docker status check — does not block the event loop
+// WSL fallback: Docker Engine installed inside the default distro, reached via `wsl --`.
 // Uses execFile (not exec) to bypass cmd.exe shell and avoid quoting issues on Windows
 function _execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -469,25 +417,41 @@ async function _checkServiceAsync(workspaceName) {
 }
 
 let _refreshInFlight = false;
+let _dockerPollDelay = DOCKER_POLL_MS;
 async function _refreshAllDockerStatusAsync() {
   if (_refreshInFlight) return;
   _refreshInFlight = true;
   try {
     const wsConfig = loadWorkspacesConfigCached();
     if (!wsConfig?.workspaces) return;
-    // Check all workspaces in parallel
     const names = Object.keys(wsConfig.workspaces);
-    const results = await Promise.all(names.map(name => _checkServiceAsync(name)));
-    for (let i = 0; i < names.length; i++) {
-      _dockerStatusCache.set(names[i], { result: results[i], updatedAt: Date.now() });
+    let results;
+    if (WSL_DOCKER) {
+      results = await Promise.all(names.map(name => _checkServiceAsync(name)));
+    } else {
+      try {
+        results = await _dockerEngine.getStatuses(names);
+        _dockerPollDelay = DOCKER_POLL_MS;
+      } catch {
+        // Engine not running yet (normal at logon) or wedged
+        results = names.map(() => emptyServiceStatus());
+        _dockerPollDelay = Math.min(_dockerPollDelay * 2, DOCKER_POLL_MAX_MS);
+      }
     }
+    const now = Date.now();
+    names.forEach((name, i) => _dockerStatusCache.set(name, { result: results[i], updatedAt: now }));
   } finally {
     _refreshInFlight = false;
   }
 }
-// Initial warm-up after 500ms, then refresh every 10s — all non-blocking
-setTimeout(_refreshAllDockerStatusAsync, 500);
-setInterval(_refreshAllDockerStatusAsync, DOCKER_CACHE_MAX_AGE_MS);
+function _scheduleDockerPoll(delay) {
+  setTimeout(async () => {
+    try { await _refreshAllDockerStatusAsync(); } catch { /* keep polling */ }
+    _scheduleDockerPoll(_dockerPollDelay);
+  }, delay);
+}
+// Initial warm-up after 500ms, then self-rescheduling — all non-blocking
+_scheduleDockerPoll(500);
 
 // ── JSON body parser ──────────────────────────────────────
 
@@ -1317,6 +1281,7 @@ route('POST', '/api/docker/start', async (req, res) => {
     } else {
       output = execSync(`docker compose up -d${service}`, { cwd: ROOT, encoding: 'utf-8', timeout: 60000 });
     }
+    _refreshAllDockerStatusAsync();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, output: output.trim() }));
@@ -1343,6 +1308,7 @@ route('POST', '/api/docker/stop', async (req, res) => {
     } else {
       output = execSync(`docker compose stop${service}`, { cwd: ROOT, encoding: 'utf-8', timeout: 30000 });
     }
+    _refreshAllDockerStatusAsync();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, output: output.trim() }));
