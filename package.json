@@ -1,6 +1,6 @@
 {
   "name": "embark-claude-index",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Fast code index for Unreal Engine projects — search types, members, files, assets, and grep across AngelScript, C++, and Blueprints via MCP tools",
   "main": "src/service/index.js",
   "type": "module",
@@ -11,7 +11,7 @@
     "setup": "node src/setup-gui.js",
     "watcher": "node src/watcher/watcher-client.js",
     "bridge": "node src/bridge/mcp-bridge.js",
-    "test": "node --test --test-timeout 30000 src/*.test.js src/watcher/*.test.js",
+    "test": "node --test --test-timeout 30000 src/*.test.js src/watcher/*.test.js src/bridge/*.test.js",
     "stress-test": "node --test src/stress-test.js"
   },
   "keywords": [

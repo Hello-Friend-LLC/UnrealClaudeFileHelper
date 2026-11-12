@@ -80,6 +80,42 @@ Key per-workspace config values:
 - `service.port`: `3847` inside the container (mapped to workspace-specific host port)
 - `zoekt.parallelism`: `4` (reduce to `2` if memory is tight)
 
+## Network exposure
+
+The workspace service has no authentication, including its `/internal/*` control routes.
+Generated `docker-compose.yml` files therefore publish every workspace on loopback only
+(`"127.0.0.1:<port>:3847"`), and the setup GUI (whose `/api/service-proxy` forwards any
+path) listens on `127.0.0.1:3846`. Regenerate an older compose file (`npm run setup`) to
+pick up the loopback binding; `validateComposeSync` reports the old form as a port drift.
+
+## HTTP MCP gateway
+
+`node src/bridge/mcp-bridge.js --http` runs the bridge as a stateless Streamable HTTP MCP
+server on the index host, in front of the loopback workspace services:
+
+| Env | Meaning |
+|-----|---------|
+| `UNREAL_INDEX_TOKEN` or `UNREAL_INDEX_TOKEN_FILE` | Shared read-only bearer (file holds only the token). Required, at least 32 characters, never logged. |
+| `UNREAL_INDEX_HTTP_HOST` / `UNREAL_INDEX_HTTP_PORT` | Bind address (default `127.0.0.1`) and port (default `3850`). Bind the LAN IP explicitly, not `0.0.0.0`. |
+| `UNREAL_INDEX_HTTP_ALLOWED_HOSTS` | Extra `Host` header values to accept (comma list), e.g. the server's DNS name. Loopback and the bind host are always allowed. |
+| `UNREAL_INDEX_HTTP_ALLOWED_ORIGINS` | Browser origins to accept (comma list). Default none: any request with an `Origin` header is refused. |
+| `UNREAL_INDEX_WORKSPACES_FILE` | Path to `workspaces.json` (default: repo root). The gateway refuses to start without at least one workspace. |
+| `UNREAL_INDEX_UPSTREAM_TIMEOUT_MS` | Timeout for each call to a workspace service (default `60000`). |
+| `UNREAL_INDEX_STATUS_POINTER` | Optional text appended to the `unreal_refresh_index` refusal, e.g. where the mirror status file lives. |
+
+Surface: `POST /mcp` (bearer required, 1 MB body cap) and an open, minimal `GET /health`
+(`{ok, mode, workspaces}`); `GET`/`DELETE /mcp` are 405 and every other path is 404, so
+`/internal/*`, `/refresh` and the raw query routes are never reachable through the gateway.
+Each request gets a fresh MCP server; the bearer is checked in constant time and is never
+forwarded to the workspace services. `workspace` is required on every tool call and must
+name a workspace from `workspaces.json`. `unreal_refresh_index` is omitted from
+`tools/list` and refused if called, because server-side mirrors own reindexing. Resources
+are listed per workspace (`unreal://index/status?workspace=<name>`).
+
+Accepted risk: the gateway speaks plain HTTP with one shared bearer on a trusted LAN, so
+anyone who can sniff that LAN can read the token. TLS (or per-client enrolment) is the
+planned upgrade path.
+
 ## Volume Management
 
 Volumes are prefixed with the workspace name:
