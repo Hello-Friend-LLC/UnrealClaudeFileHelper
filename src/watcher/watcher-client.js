@@ -24,6 +24,7 @@ import { parseUAssetHeader } from '../parsers/uasset-parser.js';
 import { gzipSync } from 'zlib';
 import { compileExcludePatterns, shouldExcludePath } from './exclude-patterns.js';
 import { getConfigReloadAction, mergeScanTelemetrySnapshot, reconcileFinalTelemetry } from './scan-telemetry.js';
+import { createReconcileState } from './reconcile-state.js';
 
 // --- Config ---
 
@@ -119,7 +120,7 @@ let totalAssetsIngested = 0;
 let totalDeletes = 0;
 let totalErrors = 0;
 let lastIngestTimestamp = null;
-let lastReconcileTimestamp = null;
+const reconcileState = createReconcileState();
 let nextReconcileTimestamp = null;
 let scanTaskInFlight = false;
 
@@ -768,10 +769,7 @@ async function main() {
           errorsCount: totalErrors,
           lastIngestAt: lastIngestTimestamp
         },
-        reconciliation: {
-          lastRunAt: lastReconcileTimestamp,
-          nextRunAt: nextReconcileTimestamp
-        }
+        reconciliation: reconcileState.snapshot(nextReconcileTimestamp)
       });
 
       // Check if service requested shutdown (e.g. Restart All from dashboard)
@@ -817,6 +815,12 @@ async function main() {
   const emptyLanguages = configuredLanguages.filter(lang => !status.counts[lang]);
   const populatedLanguages = configuredLanguages.filter(lang => status.counts[lang]);
 
+  // Bootstrap counts as one reconcile run: it succeeds only if every scan task did.
+  let bootstrapOk = true;
+  if (emptyLanguages.length > 0 || populatedLanguages.length > 0) {
+    reconcileState.markStarted();
+  }
+
   if (emptyLanguages.length > 0) {
     scanTaskInFlight = true;
     try {
@@ -824,6 +828,7 @@ async function main() {
     } catch (err) {
       console.error(`${logPrefix} Full scan failed: ${err.message}`);
       totalErrors++;
+      bootstrapOk = false;
     } finally {
       scanTaskInFlight = false;
     }
@@ -837,13 +842,17 @@ async function main() {
         .filter(project => populatedLanguages.includes(project.language))
         .map(project => project.name);
       mergeScanTelemetry(await runScanTask({ kind: 'reconcile', projectNames }));
-      lastReconcileTimestamp = new Date().toISOString();
     } catch (err) {
       console.error(`${logPrefix} Bootstrap reconcile failed: ${err.message}`);
       totalErrors++;
+      bootstrapOk = false;
     } finally {
       scanTaskInFlight = false;
     }
+  }
+
+  if (bootstrapOk && (emptyLanguages.length > 0 || populatedLanguages.length > 0)) {
+    reconcileState.markSucceeded();
   }
 
   if (!activeWatcher) {
@@ -852,9 +861,6 @@ async function main() {
 
   // --- Periodic reconciliation: catch missed file changes ---
 
-  if (!lastReconcileTimestamp) {
-    lastReconcileTimestamp = new Date().toISOString();
-  }
   nextReconcileTimestamp = new Date(Date.now() + getReconcileIntervalMs()).toISOString();
 
   async function periodicReconcile() {
@@ -865,9 +871,10 @@ async function main() {
     }
     console.log(`${logPrefix} Starting periodic reconciliation...`);
     scanTaskInFlight = true;
+    reconcileState.markStarted();
     try {
       mergeScanTelemetry(await runScanTask({ kind: 'reconcile' }));
-      lastReconcileTimestamp = new Date().toISOString();
+      reconcileState.markSucceeded();
     } catch (err) {
       console.error(`${logPrefix} Periodic reconcile failed: ${err.message}`);
       totalErrors++;
