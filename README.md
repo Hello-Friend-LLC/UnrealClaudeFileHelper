@@ -114,6 +114,27 @@ merely reflects an index gap:
 Permanent scope limits (e.g. Blueprint bodies are binary and not text-indexable)
 are *not* incompleteness — they never set `complete: false`.
 
+## Central HTTP gateway (HF fork)
+
+In this fork the plugin's `.mcp.json` connects to one central index over HTTP instead of
+starting a local stdio bridge:
+
+```json
+{ "mcpServers": { "unreal-index": {
+  "type": "http",
+  "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}",
+  "headers": { "Authorization": "Bearer ${HF_UE_INDEX_TOKEN}" } } } }
+```
+
+Clients need `HF_UE_INDEX_TOKEN` in the Claude Code environment (and optionally
+`HF_UE_INDEX_URL`). The plugin and server keep their names, so tool names stay
+`mcp__plugin_embark-claude-index_unreal-index__unreal_*`. Over the gateway every call
+must pass `workspace`, `unreal_refresh_index` is not offered (the server-side mirrors own
+reindexing), and result paths are project-relative mirror paths to map onto your local
+checkout. Server setup and the security model are in [DOCKER.md](DOCKER.md#http-mcp-gateway).
+For a single-machine install, register the stdio bridge yourself:
+`claude mcp add unreal-index -- node <clone>/src/bridge/mcp-bridge.js`.
+
 ## Configuration
 
 Configuration is managed through the setup GUI (`npm run setup` or `http://localhost:3846`):

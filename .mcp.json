@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "unreal-index": {
-      "command": "node",
-      "args": ["${UNREAL_INDEX_DIR}/src/bridge/mcp-bridge.js"]
+      "type": "http",
+      "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${HF_UE_INDEX_TOKEN}"
+      }
     }
   }
 }
