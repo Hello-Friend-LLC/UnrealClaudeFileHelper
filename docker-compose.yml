@@ -48,7 +48,7 @@ services:
     image: unreal-index:latest
     container_name: unreal-index-tempnew-58
     ports:
-      - "3849:3847"
+      - "127.0.0.1:3849:3847"
     volumes:
       - tempnew-58-db:/data/db
       - tempnew-58-mirror:/data/mirror
