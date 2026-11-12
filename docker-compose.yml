@@ -5,7 +5,7 @@ services:
     image: unreal-index:latest
     container_name: unreal-index-discovery
     ports:
-      - "3847:3847"
+      - "127.0.0.1:3847:3847"
     volumes:
       - discovery-db:/data/db
       - discovery-mirror:/data/mirror
@@ -22,7 +22,7 @@ services:
     image: unreal-index:latest
     container_name: unreal-index-editormain
     ports:
-      - "3848:3847"
+      - "127.0.0.1:3848:3847"
     volumes:
       - pioneer-db:/data/db
       - pioneer-mirror:/data/mirror

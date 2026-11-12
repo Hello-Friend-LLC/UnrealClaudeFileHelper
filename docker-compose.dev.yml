@@ -14,7 +14,7 @@
 #   services:
 #     my-project:
 #       volumes: [same as below]
-#       ports: ["6070:6070"]
+#       ports: ["127.0.0.1:6070:6070"]
 #       command: ["node", "--watch", "src/service/index.js"]
 
 services:
@@ -23,5 +23,5 @@ services:
       - ./src:/app/src:ro
       - ./public:/app/public:ro
     ports:
-      - "6070:6070"
+      - "127.0.0.1:6070:6070"
     command: ["node", "--watch", "src/service/index.js"]
