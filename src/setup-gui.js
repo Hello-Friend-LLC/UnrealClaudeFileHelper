@@ -1964,13 +1964,15 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-server.listen(PORT, () => {
-  console.log(`Setup GUI running at http://localhost:${PORT}`);
+// Loopback only: /api/service-proxy forwards any path (incl. /internal/*) to the
+// unauthenticated workspace services, so the GUI must never listen on the LAN.
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`Setup GUI running at http://127.0.0.1:${PORT}`);
 
   // Auto-open browser on Windows
   if (process.platform === 'win32') {
     try {
-      exec(`start http://localhost:${PORT}`);
+      exec(`start http://127.0.0.1:${PORT}`);
     } catch {}
   }
 });

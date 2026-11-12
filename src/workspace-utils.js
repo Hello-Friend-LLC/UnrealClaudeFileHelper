@@ -107,7 +107,9 @@ export function generateDockerComposeContent(wsConfig, rootDir) {
     lines.push(`    image: ${wsConfig.dockerImage}`);
     lines.push(`    container_name: unreal-index-${name}`);
     lines.push(`    ports:`);
-    lines.push(`      - "${ws.port}:3847"`);
+    // Loopback-only publish: the service has no auth (incl. /internal/*), so it
+    // must never be reachable off-host. Remote access goes through the MCP gateway.
+    lines.push(`      - "127.0.0.1:${ws.port}:3847"`);
     lines.push(`    volumes:`);
     lines.push(`      - ${vol}-db:/data/db`);
     lines.push(`      - ${vol}-mirror:/data/mirror`);
@@ -166,8 +168,9 @@ function parseComposeServices(content) {
 
       if (currentService && services.has(currentService)) {
         const svc = services.get(currentService);
-        const portMatch = trimmed.match(/- "(\d+):(\d+)"/);
-        if (portMatch) svc.ports.push(`${portMatch[1]}:${portMatch[2]}`);
+        // Optional host IP prefix ("127.0.0.1:3847:3847") is part of the binding.
+        const portMatch = trimmed.match(/- "(?:([\d.]+):)?(\d+):(\d+)"/);
+        if (portMatch) svc.ports.push(`${portMatch[1] ? portMatch[1] + ':' : ''}${portMatch[2]}:${portMatch[3]}`);
 
         const memMatch = trimmed.match(/mem_limit:\s*(\S+)/);
         if (memMatch) svc.memLimit = memMatch[1];

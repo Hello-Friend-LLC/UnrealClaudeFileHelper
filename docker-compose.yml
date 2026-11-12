@@ -8,7 +8,7 @@ services:
     image: unreal-index:latest
     container_name: unreal-index-spacewastecollector
     ports:
-      - "3847:3847"
+      - "127.0.0.1:3847:3847"
     volumes:
       - spacewastecollector-db:/data/db
       - spacewastecollector-mirror:/data/mirror
@@ -28,7 +28,7 @@ services:
     image: unreal-index:latest
     container_name: unreal-index-prjefz
     ports:
-      - "3848:3847"
+      - "127.0.0.1:3848:3847"
     volumes:
       - prjefz-db:/data/db
       - prjefz-mirror:/data/mirror
