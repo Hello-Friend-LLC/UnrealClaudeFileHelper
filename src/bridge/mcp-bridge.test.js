@@ -14,6 +14,7 @@ import {
   buildAllowedHosts,
   readGatewayToken,
   isAuthorized,
+  isAuthDisabled,
   routingFromConfig,
   MIN_TOKEN_LENGTH
 } from './mcp-bridge.js';
@@ -187,6 +188,26 @@ test('POST /mcp without, with a wrong, or with a non-Bearer token is 401', async
     assert.equal(res.status, 401);
     assert.equal(res.headers['www-authenticate'], 'Bearer');
     assert.equal(res.json.error.message, 'Unauthorized');
+  }
+});
+
+test('UNREAL_INDEX_AUTH=off serves /mcp without any Authorization header', async () => {
+  assert.equal(isAuthDisabled({ UNREAL_INDEX_AUTH: ' OFF ' }), true);
+  assert.equal(isAuthDisabled({}), false);
+  assert.equal(isAuthDisabled({ UNREAL_INDEX_TOKEN: TOKEN }), false);
+  const hosts = new Set(['placeholder']);
+  const open = createHttpApp({ token: '', authDisabled: true, routing, allowedHosts: hosts });
+  const srv = await new Promise(resolve => { const s = open.listen(0, '127.0.0.1', () => resolve(s)); });
+  const savedPort = gatewayPort;
+  gatewayPort = srv.address().port;
+  for (const h of buildAllowedHosts('127.0.0.1', gatewayPort)) hosts.add(h);
+  try {
+    const res = await rawRequest({ headers: mcpHeaders(null), body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+    assert.equal(res.status, 200);
+  } finally {
+    gatewayPort = savedPort;
+    srv.closeAllConnections();
+    await new Promise(resolve => srv.close(resolve));
   }
 });
 

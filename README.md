@@ -122,12 +122,11 @@ starting a local stdio bridge:
 ```json
 { "mcpServers": { "unreal-index": {
   "type": "http",
-  "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}",
-  "headers": { "Authorization": "Bearer ${HF_UE_INDEX_TOKEN}" } } } }
+  "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}" } } }
 ```
 
-Clients need `HF_UE_INDEX_TOKEN` in the Claude Code environment (and optionally
-`HF_UE_INDEX_URL`). The plugin and server keep their names, so tool names stay
+No token is needed (the gateway runs with `UNREAL_INDEX_AUTH=off`); set `HF_UE_INDEX_URL` only to
+override the address. The plugin and server keep their names, so tool names stay
 `mcp__plugin_embark-claude-index_unreal-index__unreal_*`. Over the gateway every call
 must pass `workspace`, `unreal_refresh_index` is not offered (the server-side mirrors own
 reindexing), and result paths are project-relative mirror paths to map onto your local

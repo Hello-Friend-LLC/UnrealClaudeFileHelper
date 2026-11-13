@@ -2,10 +2,7 @@
   "mcpServers": {
     "unreal-index": {
       "type": "http",
-      "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}",
-      "headers": {
-        "Authorization": "Bearer ${HF_UE_INDEX_TOKEN}"
-      }
+      "url": "${HF_UE_INDEX_URL:-http://192.168.12.201:3850/mcp}"
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "embark-claude-index",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Fast code index for Unreal Engine projects — search types, members, files, assets, and grep across AngelScript, C++, and Blueprints via MCP tools.",
   "author": {
     "name": "EmbarkStudios",

@@ -949,7 +949,8 @@ export class UnrealIndexBridge {
 
 // ── HTTP gateway mode (--http) ───────────────────────────────
 // Stateless Streamable HTTP: a new Server + transport per POST /mcp.
-// One shared read-only bearer gates /mcp; GET /health is open and minimal.
+// One shared read-only bearer gates /mcp unless UNREAL_INDEX_AUTH=off (open
+// gateway, trusted-LAN deployments); GET /health is open and minimal.
 // Workspace services stay loopback-only; the gateway never proxies raw
 // service routes (/internal/*, /refresh, ...) and never forwards the bearer.
 
@@ -972,6 +973,10 @@ export function isAuthorized(header, expectedToken) {
  * Read the gateway bearer from UNREAL_INDEX_TOKEN or UNREAL_INDEX_TOKEN_FILE
  * (file holds only the token). Throws without ever including the token value.
  */
+export function isAuthDisabled(env = process.env) {
+  return String(env.UNREAL_INDEX_AUTH || '').trim().toLowerCase() === 'off';
+}
+
 export function readGatewayToken(env = process.env) {
   let token = env.UNREAL_INDEX_TOKEN || '';
   if (!token && env.UNREAL_INDEX_TOKEN_FILE) {
@@ -1023,9 +1028,10 @@ export function createHttpApp({
   routing,
   allowedHosts,
   allowedOrigins = new Set(),
-  statusPointer = process.env.UNREAL_INDEX_STATUS_POINTER || ''
+  statusPointer = process.env.UNREAL_INDEX_STATUS_POINTER || '',
+  authDisabled = false
 }) {
-  if (!token || token.length < MIN_TOKEN_LENGTH) {
+  if (!authDisabled && (!token || token.length < MIN_TOKEN_LENGTH)) {
     throw new Error(`createHttpApp requires a token of at least ${MIN_TOKEN_LENGTH} characters`);
   }
   if (!routing || !(routing.urls instanceof Map) || routing.urls.size === 0) {
@@ -1060,7 +1066,7 @@ export function createHttpApp({
   });
 
   app.all('/mcp', (req, res, next) => {
-    if (!isAuthorized(req.headers.authorization, token)) {
+    if (!authDisabled && !isAuthorized(req.headers.authorization, token)) {
       res.set('WWW-Authenticate', 'Bearer');
       sendJsonRpcError(res, 401, -32001, 'Unauthorized');
       return;
@@ -1124,9 +1130,10 @@ function parsePort(value, fallback) {
 }
 
 function runHttp() {
-  let token;
+  let token = '';
+  const authDisabled = isAuthDisabled();
   try {
-    token = readGatewayToken();
+    if (!authDisabled) token = readGatewayToken();
   } catch (err) {
     console.error(`[Bridge] ${err.message}`);
     process.exit(2);
@@ -1143,8 +1150,12 @@ function runHttp() {
     console.error('[Bridge] UNREAL_INDEX_HTTP_PORT is not a valid port');
     process.exit(2);
   }
+  if (authDisabled) {
+    console.error('[Bridge] UNREAL_INDEX_AUTH=off: /mcp is unauthenticated; keep this gateway on a trusted network');
+  }
   const app = createHttpApp({
     token,
+    authDisabled,
     routing,
     allowedHosts: buildAllowedHosts(host, port, process.env.UNREAL_INDEX_HTTP_ALLOWED_HOSTS),
     allowedOrigins: new Set(splitList(process.env.UNREAL_INDEX_HTTP_ALLOWED_ORIGINS))
