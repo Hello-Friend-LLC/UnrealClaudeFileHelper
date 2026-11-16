@@ -237,7 +237,7 @@ export class UnrealIndexBridge {
     this.server = new Server(
       {
         name: 'unreal-index',
-        version: '2.1.0',
+        version: '2.2.0',
       },
       {
         capabilities: {
@@ -266,7 +266,7 @@ export class UnrealIndexBridge {
               properties: {
                 name: {
                   type: 'string',
-                  description: 'Type name to search for (e.g. ADiscoveryPlayerController, AActor, FVector, ESpectatorState)'
+                  description: 'Type name to search for (e.g. AActor, UActorComponent, FVector, ESpectatorState)'
                 },
                 fuzzy: {
                   type: 'boolean',
@@ -275,7 +275,7 @@ export class UnrealIndexBridge {
                 },
                 project: {
                   type: 'string',
-                  description: 'Filter by project (Discovery, Pioneer, Shared, Engine, EnginePlugins, DiscoveryPlugins)'
+                  description: 'Filter by project (project name as returned by unreal_list_modules)'
                 },
                 language: {
                   type: 'string',
@@ -315,7 +315,7 @@ export class UnrealIndexBridge {
               properties: {
                 parentClass: {
                   type: 'string',
-                  description: 'Parent class name (e.g. AActor, UActorComponent, ADiscoveryPlayerControllerBase)'
+                  description: 'Parent class name (e.g. AActor, UActorComponent, APawn)'
                 },
                 recursive: {
                   type: 'boolean',
@@ -324,7 +324,7 @@ export class UnrealIndexBridge {
                 },
                 project: {
                   type: 'string',
-                  description: 'Filter by project (Discovery, Pioneer, Shared, Engine, EnginePlugins, DiscoveryPlugins)'
+                  description: 'Filter by project (project name as returned by unreal_list_modules)'
                 },
                 language: {
                   type: 'string',
@@ -350,7 +350,7 @@ export class UnrealIndexBridge {
               properties: {
                 module: {
                   type: 'string',
-                  description: 'Module path (e.g. Discovery.UI, Engine.Source.Runtime, EnginePlugins.Online)'
+                  description: 'Module path as returned by unreal_list_modules (e.g. <Project>.<Folder>.<Subfolder>)'
                 },
                 project: {
                   type: 'string',
@@ -384,7 +384,7 @@ export class UnrealIndexBridge {
                 },
                 project: {
                   type: 'string',
-                  description: 'Filter by project (Discovery, Pioneer, Shared, Engine, EnginePlugins, DiscoveryPlugins, DiscoveryConfig, EngineConfig)'
+                  description: 'Filter by project (project name as returned by unreal_list_modules)'
                 },
                 language: {
                   type: 'string',
@@ -404,7 +404,7 @@ export class UnrealIndexBridge {
           },
           {
             name: 'unreal_refresh_index',
-            description: 'Rebuild the file index. Optionally specify a language to rebuild only that index.',
+            description: 'Reindex only the paths the index service itself can see; with the Docker-only deployment the host source paths are not mounted, so this can report success with 0 files indexed. Run the file watcher to refresh a Docker index. Optionally specify a language to limit the refresh.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -544,11 +544,11 @@ export class UnrealIndexBridge {
                 },
                 project: {
                   type: 'string',
-                  description: 'Filter by project (DiscoveryContent, PioneerContent, EngineContent)'
+                  description: 'Filter by project (project name as returned by unreal_list_modules)'
                 },
                 folder: {
                   type: 'string',
-                  description: 'Filter by content browser folder path (e.g. /Game/Discovery/Props)'
+                  description: 'Filter by content browser folder path (e.g. /Game/Props)'
                 },
                 maxResults: {
                   type: 'number',
@@ -572,7 +572,7 @@ export class UnrealIndexBridge {
                 },
                 project: {
                   type: 'string',
-                  description: 'Filter by project (Discovery, Pioneer, Shared, Engine, EnginePlugins, DiscoveryPlugins, DiscoveryConfig, EngineConfig)'
+                  description: 'Filter by project (project name as returned by unreal_list_modules)'
                 },
                 language: {
                   type: 'string',
@@ -654,7 +654,7 @@ export class UnrealIndexBridge {
                       },
                       args: {
                         type: 'array',
-                        description: 'Arguments array for the method. E.g. ["AActor", {"project": "Discovery"}] for findTypeByName.'
+                        description: 'Arguments array for the method. E.g. ["AActor", {"project": "<project from unreal_list_modules>"}] for findTypeByName.'
                       }
                     },
                     required: ['method', 'args']

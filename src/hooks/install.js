@@ -231,8 +231,8 @@ export async function installHooks(projectDir, { silent = false, tryGo = true } 
       `When using unreal-index MCP tools, you MUST pass \`workspace: "${owningWorkspace}"\` ` +
       `to every tool call. Example:\n\n` +
       '```\n' +
-      `mcp__unreal-index__unreal_find_type with name: "MyClass", workspace: "${owningWorkspace}"\n` +
-      `mcp__unreal-index__unreal_grep with pattern: "SomePattern", workspace: "${owningWorkspace}"\n` +
+      `unreal_find_type with name: "MyClass", workspace: "${owningWorkspace}"\n` +
+      `unreal_grep with pattern: "SomePattern", workspace: "${owningWorkspace}"\n` +
       '```\n\n' +
       `This ensures queries go to the correct index. Omitting the workspace parameter will ` +
       `query the default workspace ("${defaultWsName}"), which will NOT have this project's files.`;

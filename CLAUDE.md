@@ -2,18 +2,13 @@
 
 MCP server plugin providing fast code navigation for Unreal Engine projects. Indexes AngelScript, C++, Blueprints, and assets.
 
+This is an offline source/asset index (MCP server `unreal-index`, tools `unreal_*`). It does not talk to Unreal Editor. Live-editor work (actors, Blueprints, Live Coding) goes through Epic's `unreal-mcp` server (ModelContextProtocol plugin) or the project's editor MCP, not this plugin.
+
 ## Tool Instructions
 
-Always use unreal-index MCP tools instead of Bash commands for searching UE/AS code:
-
-- Use `unreal_find_file` instead of `find` or `ls` to locate source files by name
-- Use `unreal_grep` instead of `grep`, `rg`, or `sed -n` to search file contents or find line numbers
-- Use `unreal_find_type` instead of grep to locate class/struct/enum definitions
-- Use `unreal_find_member` instead of grep to locate function/property definitions
-- Use the `Read` tool (not sed/cat/head) to read file contents after finding them
-
-Never fall back to Bash find/grep — these tools are faster, project-aware, and return structured results.
-If a search returns no results, check the hints in the response for guidance (wrong project filter, try fuzzy, etc).
+The `unreal_*` MCP tools search the configured Unreal workspaces (AngelScript, C++, assets), not this repository's own Node.js code. In
+UE projects prefer them for type/member/file/content lookups; confirm every hit against the local file before citing it. To search THIS
+repo use normal file search (Read, Grep).
 
 ## Architecture
 
@@ -33,6 +28,7 @@ If a search returns no results, check the hints in the response for guidance (wr
 ## Development
 
 - `npm run setup` — Open the web-based setup GUI at `http://localhost:3846` (no npm install needed)
+- `npm start [-- <workspace>]` — validate configs, regenerate `docker-compose.yml` if out of sync, start containers, print health (`npm run validate` / `npm run status` for config-only and health-only)
 - `docker compose up` — Start all workspace containers
 - `docker compose up <workspace>` — Start a specific workspace container
 - `npm run watcher -- --workspace <name>` — Start the file watcher for a specific workspace

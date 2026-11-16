@@ -735,7 +735,7 @@ async function loadWorkspaces() {
             </div>
           </div>
           <div id="ws-memory-${esc(name)}" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px solid #3e3e3e">
-            <p class="info-msg" style="margin-bottom:8px">Auto-calculated: 4GB base + 0.5GB per project (${(ws.config?.projects?.length || 0)} projects = ${ws.computedMemLimitGB || '?'}GB). Override below or set to 0 to use auto.</p>
+            <p class="info-msg" style="margin-bottom:8px">Auto-calculated from project languages (2GB base + 0.5-2GB per project; min 4GB) (${(ws.config?.projects?.length || 0)} projects = ${ws.computedMemLimitGB || '?'}GB). Override below or set to 0 to use auto.</p>
             <div style="display:flex; gap:8px; align-items:flex-end">
               <div class="form-group" style="margin-bottom:0; width:150px">
                 <label>Memory limit (GB)</label>

@@ -13,7 +13,6 @@ perf-*.mjs
 profiles/
 
 # Windows-only files
-start-service.bat
 *.ps1
 
 # IDE and config

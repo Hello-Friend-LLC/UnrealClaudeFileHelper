@@ -383,3 +383,22 @@ test('stdio mode keeps the default workspace and exposes unreal_refresh_index', 
   assert.equal(refresh.inputSchema.required, undefined);
   assert.match(refresh.inputSchema.properties.workspace.description, /Default: "alpha"/);
 });
+
+test('tool descriptions are generic: no hard-coded Embark project names, project filters point at unreal_list_modules', async () => {
+  const tools = await listToolsInMemory('stdio');
+  const text = JSON.stringify(tools);
+  assert.doesNotMatch(text, /Discovery|Pioneer/);
+  const projectFilters = tools.flatMap(t => {
+    const props = t.inputSchema.properties || {};
+    return props.project ? [props.project.description] : [];
+  });
+  assert.ok(projectFilters.length > 0);
+  assert.ok(projectFilters.some(d => /unreal_list_modules/.test(d)));
+  for (const d of projectFilters) assert.ok(d === 'Filter by project' || /unreal_list_modules/.test(d), d);
+});
+
+test('unreal_refresh_index description states it only reindexes host-visible paths', async () => {
+  const tools = await listToolsInMemory('stdio');
+  const refresh = tools.find(t => t.name === 'unreal_refresh_index');
+  assert.match(refresh.description, /only the paths the index service itself can see/);
+});

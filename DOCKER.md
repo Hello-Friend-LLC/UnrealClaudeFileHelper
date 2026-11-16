@@ -5,7 +5,7 @@ Each workspace runs as its own Docker container with a dedicated port, SQLite da
 ## Prerequisites
 
 - Docker Desktop with WSL 2 backend (Windows) or Docker Engine (Linux)
-- At least 6 GB of RAM allocated to Docker per workspace
+- At least 4 GB of RAM per workspace (more for engine source or large content roots; see Memory Tuning)
 
 ## Quick Start
 
@@ -39,27 +39,28 @@ docker compose stop
 Windows Host                          Docker Containers (one per workspace)
 ┌──────────────────┐
 │ Watcher(s)        │                 ┌──────────────────────────┐
-│ (watcher-client)  │  HTTP POST     │  discovery (:3847)        │
-│ --workspace disc  │───────────────►│  node service/index.js    │
-│ --workspace edit  │  :3847/:3848   │  Express + SQLite + Zoekt │
+│ (watcher-client)  │  HTTP POST     │  prjefz (:3847)           │
+│ --workspace prjefz│───────────────►│  node service/index.js    │
+│ --workspace <ws2> │  :3847/:3848   │  Express + SQLite + Zoekt │
 │                   │                 │  Volumes:                 │
-│ MCP Bridge        │  HTTP GET      │    discovery-db            │
-│ (mcp-bridge)      │───────────────►│    discovery-mirror        │
-│                   │  routed by     │    discovery-zoekt          │
+│ MCP Bridge        │  HTTP GET      │    unreal-index-prjefz-db  │
+│ (mcp-bridge)      │───────────────►│    ...-prjefz-mirror       │
+│                   │  routed by     │    ...-prjefz-zoekt        │
 │                   │  workspace     └──────────────────────────┘
 └──────────────────┘
                                       ┌──────────────────────────┐
-                                      │  editormain (:3848)       │
+                                      │  spacewastecollector      │
+                                      │  (:3848)                  │
                                       │  node service/index.js    │
                                       │  Express + SQLite + Zoekt │
                                       │  Volumes:                 │
-                                      │    pioneer-db              │
-                                      │    pioneer-mirror          │
-                                      │    pioneer-zoekt            │
+                                      │    unreal-index-<ws>-db    │
+                                      │    ...-<ws>-mirror         │
+                                      │    ...-<ws>-zoekt          │
                                       └──────────────────────────┘
 ```
 
-Each container bundles Node.js 22, Zoekt (built from source), and the service code. Data is persisted in workspace-prefixed Docker volumes.
+Each container bundles Node.js 22, Zoekt (built from source), and the service code. Data is persisted in per-workspace Docker volumes named `unreal-index-<workspace-name>-db|mirror|zoekt`.
 
 ## Configuration
 
@@ -95,7 +96,7 @@ server on the index host, in front of the loopback workspace services:
 
 | Env | Meaning |
 |-----|---------|
-| `UNREAL_INDEX_TOKEN` or `UNREAL_INDEX_TOKEN_FILE` | Shared read-only bearer (file holds only the token). Required (at least 32 characters, never logged) unless . |
+| `UNREAL_INDEX_TOKEN` or `UNREAL_INDEX_TOKEN_FILE` | Shared read-only bearer (file holds only the token). Required (at least 32 characters, never logged) unless `UNREAL_INDEX_AUTH=off`. |
 | `UNREAL_INDEX_AUTH` | `off` serves `POST /mcp` with no Authorization header and ignores the token vars (trusted-LAN deployment; logs a warning at start). Default: bearer required. |
 | `UNREAL_INDEX_HTTP_HOST` / `UNREAL_INDEX_HTTP_PORT` | Bind address (default `127.0.0.1`) and port (default `3850`). Bind the LAN IP explicitly, not `0.0.0.0`. |
 | `UNREAL_INDEX_HTTP_ALLOWED_HOSTS` | Extra `Host` header values to accept (comma list), e.g. the server's DNS name. Loopback and the bind host are always allowed. |
@@ -119,11 +120,11 @@ planned upgrade path.
 
 ## Volume Management
 
-Volumes are prefixed with the workspace name:
+Volumes are named `unreal-index-<workspace-name>-db|mirror|zoekt`:
 
 ```bash
 # View volume sizes
-docker system df -v | grep -E "(discovery|editormain)"
+docker system df -v | grep -E "unreal-index-"
 
 # Backup a workspace database
 docker compose cp <workspace-name>:/data/db/index.db ./backup-index.db
@@ -132,12 +133,12 @@ docker compose cp <workspace-name>:/data/db/index.db ./backup-index.db
 docker compose down -v
 
 # Reset just Zoekt index for a workspace (rebuilds on next start)
-docker volume rm <workspace-name>-zoekt
+docker volume rm unreal-index-<workspace-name>-zoekt
 ```
 
 ## Memory Tuning
 
-Default limits per workspace: configurable via the setup GUI (default 8 GB RAM, 10 GB with swap).
+Default limit per workspace is auto-calculated from its projects (2 GB base plus about 1.5 GB for content, 2 GB for engine C++, 0.5 GB for game C++ or AngelScript; clamped to 4-16 GB; swap limit = memory + 2 GB). Override it in the setup GUI.
 
 | Consumer | Typical Usage |
 |----------|--------------|
@@ -190,7 +191,7 @@ docker compose exec <workspace-name> which zoekt-index zoekt-webserver
 SQLite WAL mode recovers automatically on restart. If issues persist:
 ```bash
 docker compose down
-docker volume rm <workspace-name>-db
+docker volume rm unreal-index-<workspace-name>-db
 docker compose up -d
 # Re-run watcher to repopulate
 ```

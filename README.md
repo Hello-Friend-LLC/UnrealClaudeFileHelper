@@ -2,6 +2,8 @@
 
 Fast code search for Unreal Engine projects in Claude Code.
 
+This is an offline source/asset index (MCP server `unreal-index`, tools `unreal_*`). It does not talk to Unreal Editor. Live-editor work (actors, Blueprints, Live Coding) goes through Epic's `unreal-mcp` server (ModelContextProtocol plugin) or the project's editor MCP, not this plugin.
+
 ## What it does
 
 - **11 MCP tools** for searching types, members, files, assets, and code
@@ -12,13 +14,11 @@ Fast code search for Unreal Engine projects in Claude Code.
 
 ## Quick Install
 
-> **HF fork:** on HF machines, `/hf-onboard` (phase 5c) does all of this:
-> clones this fork, installs dependencies, sets `UNREAL_INDEX_DIR`,
-> registers the marketplace and installs the plugin, and (with
-> `--setup-ue-index-workspace`) creates the workspace, containers and
-> watcher. The upstream `/embark-claude-index:setup` skill is removed in
-> this fork because it cloned a second copy into
-> `~/.claude/repos/embark-claude-index`.
+> **HF fork:** on HF machines the index is CENTRAL (WI-1738): one service on the index host, reached over HTTP through the plugin's
+> `.mcp.json` (see "Central HTTP gateway" below). `/hf-onboard` (phase 5c) registers this fork's marketplace and installs the plugin and
+> the project's workspace rule; it does not clone this repo, set `UNREAL_INDEX_DIR`, or start containers on client machines. The
+> per-machine flow below is for the index host or `HF_UE_INDEX_MODE=local`. The upstream `/embark-claude-index:setup` skill is
+> removed in this fork because it cloned a second copy into `~/.claude/repos/embark-claude-index`.
 
 ### 1. Add the marketplace and install
 
@@ -40,7 +40,7 @@ Restart to load the plugin and MCP tools.
 ### 3. Run setup
 
 Run `npm run setup` in the clone to open the web-based setup GUI at
-`http://localhost:3846`. It handles dependencies, workspace and project-path
+`http://localhost:3846` (or `npm start` to validate configs, regenerate `docker-compose.yml` and start the containers; `npm run validate` and `npm run status` for config-only and health-only checks). The GUI handles dependencies, workspace and project-path
 configuration, Docker containers, and the file watcher.
 
 ## Prerequisites
@@ -88,7 +88,7 @@ Each workspace runs as its own Docker container with a dedicated port, SQLite da
 | `unreal_browse_module` | List types and files in a module/directory |
 | `unreal_list_modules` | Discover code organization and module tree |
 | `unreal_grep` | Full-text search across indexed source code |
-| `unreal_refresh_index` | Rebuild the index on demand |
+| `unreal_refresh_index` | Reindex host-visible paths only (stdio/local installs; not offered by the central gateway; under Docker run the watcher) |
 | `unreal_batch` | Execute multiple queries in a single call |
 
 ### Index completeness (`index` block)
@@ -144,11 +144,15 @@ Configuration is managed through the setup GUI (`npm run setup` or `http://local
 
 All three files are gitignored since they contain local paths. Run `npm run setup` to generate them.
 
-Supported project languages: `angelscript`, `cpp`, `content` (assets), `config` (ini files).
+Supported project languages: `angelscript`, `cpp`, `content` (assets), `config` (ini files), `csharp` (`*.Build.cs`, `*.Target.cs`, `*.Automation.cs`; add by hand, the setup GUI dropdown does not list it).
 
 ## Troubleshooting
 
-**Tools say "Unreal Index Service is not running"**
+**Using the central gateway (HF clients)**
+- There are no local containers to start; if tools report the service is unreachable, report it to the index owner and check `HF_UE_INDEX_URL` (default `http://192.168.12.201:3850/mcp`).
+- Always pass `workspace` (for example `prjefz` or `spacewastecollector`); `project` filters use the names returned by `unreal_list_modules`.
+
+**Tools say "Unreal Index Service is not running"** (per-machine Docker install)
 - Start containers: `docker compose up -d`
 - Check health: `curl http://127.0.0.1:3847/health`
 - View logs: `docker compose logs -f <workspace-name>`

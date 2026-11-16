@@ -10,12 +10,13 @@ Core runtime code lives in `src/`:
 UI and setup assets are in `public/`. Workspace definitions are in `workspaces.json` and per-workspace configs in `workspace-configs/`. Utility scripts live in `scripts/` and `tools/`. CI automation is in `.github/workflows/`.
 
 ## Build, Test, and Development Commands
+- `npm start [-- <workspace>]`: validate configs, regenerate `docker-compose.yml` if out of sync, start containers, print health (`npm run validate` / `npm run status` for config-only and health-only)
 - `npm run setup`: launch setup GUI (`src/setup-gui.js`) to generate workspace/service config
 - `docker compose up -d`: start workspace containers (primary deployment mode)
 - `docker compose -f docker-compose.yml -f docker-compose.dev.yml up`: dev mode with live reload
 - `npm run watcher -- --workspace <name>`: start watcher for one workspace
 - `npm run bridge`: run MCP bridge locally
-- `npm test`: run unit tests (`node --test src/*.test.js`)
+- `npm test`: run unit tests (the `test` script in `package.json`; `node --test --test-timeout 30000` over `src/*.test.js`, `src/watcher/*.test.js`, `src/bridge/*.test.js` and `src/parsers/*.test.js`)
 - `npm run stress-test`: run stress test suite
 
 ## Coding Style & Naming Conventions
