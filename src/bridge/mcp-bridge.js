@@ -191,27 +191,14 @@ function adaptToolsForMode(tools, mode) {
 
 function buildInstructions(routing, mode) {
   const available = [...routing.urls.keys()].join(', ');
-  const toolBullets = `- Use unreal_find_file instead of \`find\` or \`ls\` to locate source files by name
-- Use unreal_grep instead of \`grep\`, \`rg\`, or \`sed -n\` to search file contents or find line numbers
-- Use unreal_find_type instead of grep to locate class/struct/enum definitions
-- Use unreal_find_member instead of grep to locate function/property definitions`;
+  // WI-1764: kept short (<= 500 chars) -- these ride in every session's system prompt.
   if (mode === 'http') {
-    return `IMPORTANT: Prefer these unreal-index tools over Bash commands for searching Unreal Engine/AngelScript code.
-${toolBullets}
-This is a remote, central index reached over HTTP. It indexes a read-only server-side mirror of each workspace, not files on this machine:
-- Result paths are project-relative mirror paths ("<Project>/<path inside that project>"), never files you can Read as-is. Map the part after the project name onto your local checkout of that project, then Read the local file.
-- The mirror syncs on a schedule, so it can lag or lead your checkout. If the local file differs from a hit, trust the local file.
-- Check the "index" block of each response: when index.complete is false, treat missing or odd results as inconclusive.
-- unreal_refresh_index is not available here; the mirrors own reindexing.
-If a search returns no results, check the hints in the response for guidance (wrong project filter, try fuzzy, etc).
-The "workspace" parameter is required on every call. Available workspaces: ${available}.`;
+    return `Offline unreal_* index of Unreal Engine/AngelScript code (find_type, find_member, find_file, grep).
+Remote read-only server mirror: result paths are "<Project>/<path>", not local files; map them to your checkout and Read that. The mirror syncs on a schedule and can lag your checkout: trust the local file. index.complete=false means inconclusive.
+"workspace" is required on every call. Workspaces: ${available}.`;
   }
-  return `IMPORTANT: Always use these unreal-index tools instead of Bash commands for searching Unreal Engine/AngelScript code.
-${toolBullets}
-- Use the Read tool (not sed/cat/head) to read file contents after finding them
-Never fall back to Bash find/grep — these tools are faster, project-aware, and return structured results.
-If a search returns no results, check the hints in the response for guidance (wrong project filter, try fuzzy, etc).
-Available workspaces: ${available}. Default workspace: "${routing.defaultWorkspace}". Use the "workspace" parameter to query a specific workspace.`;
+  return `Offline unreal_* index of Unreal Engine/AngelScript code (find_type, find_member, find_file, grep). Read files with the Read tool after finding them.
+Workspaces: ${available}. Default: "${routing.defaultWorkspace}"; pass "workspace" to query another.`;
 }
 
 function refreshDisabledMessage(statusPointer) {
